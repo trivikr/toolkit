@@ -767,6 +767,48 @@ test('save proceeds when the existing cache entry lookup fails', async () => {
   expect(createCacheEntryMock).toHaveBeenCalledTimes(1)
 })
 
+test('save skips the existing cache entry lookup in write-only cache mode', async () => {
+  const paths = ['node_modules']
+  const key = 'Linux-node-bb828da54c148048dd17899ba9fda624811cfb43'
+  const signedUploadURL = 'https://blob-storage.local?signed=true'
+  const originalMode = process.env['ACTIONS_CACHE_MODE']
+  process.env['ACTIONS_CACHE_MODE'] = 'write-only'
+
+  try {
+    const createTarMock = jest.spyOn(tar, 'createTar')
+    const createCacheEntryMock = jest
+      .spyOn(CacheServiceClientJSON.prototype, 'CreateCacheEntry')
+      .mockResolvedValue({
+        ok: true,
+        signedUploadUrl: signedUploadURL,
+        message: ''
+      })
+    jest.spyOn(cacheHttpClient, 'saveCache').mockResolvedValue()
+    jest
+      .spyOn(CacheServiceClientJSON.prototype, 'FinalizeCacheEntryUpload')
+      .mockResolvedValue({ok: true, entryId: '4', message: ''})
+    jest
+      .spyOn(cacheUtils, 'getCompressionMethod')
+      .mockResolvedValueOnce(CompressionMethod.Zstd)
+    jest
+      .spyOn(cacheUtils, 'getArchiveFileSizeInBytes')
+      .mockReturnValueOnce(1024)
+
+    const cacheId = await saveCache(paths, key)
+
+    expect(cacheId).toBe(4)
+    expect(getCacheEntryDownloadURLMock).not.toHaveBeenCalled()
+    expect(createTarMock).toHaveBeenCalledTimes(1)
+    expect(createCacheEntryMock).toHaveBeenCalledTimes(1)
+  } finally {
+    if (originalMode === undefined) {
+      delete process.env['ACTIONS_CACHE_MODE']
+    } else {
+      process.env['ACTIONS_CACHE_MODE'] = originalMode
+    }
+  }
+})
+
 test('save with non existing path should not save cache using v2 saveCache', async () => {
   const path = 'node_modules'
   const key = 'Linux-node-bb828da54c148048dd17899ba9fda624811cfb43'
